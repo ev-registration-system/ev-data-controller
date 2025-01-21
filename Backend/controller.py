@@ -52,9 +52,36 @@ def process_charger_data(charger_id, charger_power_value, ev_charger_value):
             state["current_active_time"] += active_duration
             state["current_power_used"] += ev_charger_value * (active_duration / 3600)
         
+        # Log historical data before resetting
+            history_data = {
+                "charger_id": charger_id,
+                "total_active_time_minutes": state["current_active_time"] / 60,
+                "total_active_time_hours": state["current_active_time"] / 3600,
+                "total_power_used_kwh": state["current_power_used"],
+                "timestamp": firestore.SERVER_TIMESTAMP,
+            }
+            db.collection("charger_history").add(history_data)
+            print("Historical data successfully logged.")
+
+        # Save values before resetting 
+        final_active_time_minutes = state["current_active_time"] / 60
+        final_active_time_hours = state["current_active_time"] / 3600
+        final_power_used = state["current_power_used"]
+
         # Reset the state values when charger power is off
         state["active_period_start"] = None
+        state["current_active_time"] = 0.0
+        state["current_power_used"] = 0.0
 
+        # Save updated state to db
+        save_charger_state(charger_id, state)
+
+        return {
+            "final_active_time_minutes": final_active_time_minutes,
+            "final_active_time_hours": final_active_time_hours,
+            "final_power_used": final_power_used,
+        }
+    
     # Update state for time and power
     state["last_power_state"] = charger_power_value
     state["last_timestamp"] = current_time
@@ -97,6 +124,7 @@ def controller():
 
         # Get time and power used 
         state = process_charger_data(charger_id, charger_power, ev_value)
+
         # Write data to Firestore
         data = {
             "ir_sensor": ir_sensor,
@@ -107,26 +135,9 @@ def controller():
         print(f"Data successfully written for Charger ID: {charger_id}")
 
         if state:
-            if state["active_period_start"] is None:
-                total_time_minutes = state['current_active_time'] / 60  # Convert seconds to minutes
-                total_time_hours = state['current_active_time'] / 3600  # Convert seconds to hours
-                
-                print(f"Total Time Active: {total_time_minutes:.2f} minutes ({total_time_hours:.2f} hours)")
-                print(f"Total Power Used: {state['current_power_used']:.2f} units")
-
-                # Save historical data to charger_history collection
-                history_data = {
-                    "charger_id": charger_id,
-                    "total_active_time_minutes": total_time_minutes,
-                    "total_active_time_hours": total_time_hours,
-                    "total_power_used_kwh": state['current_power_used'],
-                    "timestamp": firestore.SERVER_TIMESTAMP,
-                }
-                db.collection("charger_history").add(history_data)
-                print("Historical data successfully logged.")
-                # Reset values for time and power
-                state["current_active_time"] = 0.0
-                state["current_power_used"] = 0.0
+            if "final_active_time_minutes" in state:
+                print(f"Total Time Active: {state['final_active_time_minutes']:.2f} minutes ({state['final_active_time_hours']:.2f} hours)")
+                print(f"Total Power Used: {state['final_power_used']:.2f} kWh")
             else:
                 print("Charger is currently active or waiting for active period to complete.")
         else:
