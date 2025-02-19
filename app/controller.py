@@ -1,11 +1,18 @@
-class ChargerController:
+class Controller:
     def __init__(self):
-        self.state = 'off'
-    
-    def get_state(self):
-        return self.state
-    
-    def toggle(self):
-        self.state = 'on' if self.state == 'off' else 'off'
+        # Init controller. turn on senor
+        pass
 
-charger = ChargerController()
+    def handle_sensor_state_change(self, vehicle_present):
+        # Handle incoming/leaving car. I.E either let user check in or notify security
+        pass
+        
+    def start(self):
+        print("[Controller] Starting controller and sensor monitoring.")
+        self.sensor.start_monitoring()
+
+    def stop(self):
+        print("[Controller] Stopping controller and sensor monitoring.")
+        self.sensor.stop()
+        
+controller = Controller()
