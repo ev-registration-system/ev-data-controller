@@ -1,0 +1,38 @@
+@startuml controller-uml-diagram
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam arrowColor #000000
+skinparam componentBorderColor #000000
+skinparam componentBackgroundColor #F9F9F9
+
+actor "User" as User
+actor "Main Application" as MainApp
+
+package "EV Charger System" {
+
+    [Controller] as Controller
+    [IRSensor] as IRSensor
+    [Charger] as Charger
+    [MQTTHandler] as MQTTHandler
+}
+
+User --> Controller : Park Vehicle
+Controller --> IRSensor : Detect Vehicle
+IRSensor --> Controller : Vehicle Presence Status
+
+Controller --> MQTTHandler : Notify Vehicle Arrival
+MQTTHandler --> MainApp : Publish Vehicle Arrival
+
+MainApp --> MQTTHandler : /checkin or /illegalvehicle
+MQTTHandler --> Controller : Forward MQTT Message
+
+Controller --> Charger : Enable Charger (if checked in)
+Controller --> Charger : Disable Charger (if departed/illegal)
+
+User --> Controller : Depart Vehicle
+Controller --> Charger : Turn Off Charger
+Controller --> IRSensor : Detect Vehicle Departure
+
+@enduml
