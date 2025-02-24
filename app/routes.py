@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, make_response
-from app.controller import charger
+from app.controller import Charger
 
 bp = Blueprint('routes', __name__)
+charger = Charger()
 
 @bp.route('/state', methods=['GET'])
 def get_state():
