@@ -26,7 +26,9 @@ class IRSensor:
 # Get the current system time rounded to the nearest 30 minute interval.
     def get_system_time(self):
         current_time = datetime.now()
-        return current_time.replace(minute=(current_time.minute // 30) * 30, second=0, microsecond=0)
+        # hardcoded the date to 2025, 3, 11
+        hardcoded_time = datetime(2025, 3, 11, current_time.hour, current_time.minute, current_time.second)
+        return current_time.replace(minute=(hardcoded_time.minute // 30) * 30, second=0, microsecond=0)
 
 # Check the df for the current 30 minute interval and update the state.
     def update_state(self):
