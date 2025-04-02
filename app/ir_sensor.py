@@ -1,67 +1,44 @@
 import pandas as pd
-import threading
 from datetime import datetime
-import time
 
 class IRSensor:
-    def __init__(self, csv_file, controller):
+    def __init__(self, csv_file='app/ir_sensor_data.csv'):
         self.csv_file = csv_file
         self.data = self.load_csv_data()
-        self.vehicle_present = False
-        self.stop_event = threading.Event()
-        if controller is None:
-            raise ValueError("Controller cannot be None")
-        self.controller = controller
 
-
-# Load CSV data into a pandas df. The CSV should have 'timestamp' and 'ir_value' columns.
     def load_csv_data(self):
         try:
-            df = pd.read_csv(self.csv_file, parse_dates=['timestamp'])
+            df = pd.read_csv(self.csv_file)
+            current_date = datetime.now().date()
+            # current_hour = datetime.now().hour # dev only
+            
+            df['timestamp'] = df.apply(
+                lambda row: datetime(current_date.year, current_date.month, current_date.day, int(row['hour']), int(row['minute']), 0, 0),
+                # lambda row: datetime(current_date.year, current_date.month, current_date.day, current_hour, int(row['hour']), int(row['minute']), 0), # dev only
+                axis=1
+            )
             return df
         except Exception as e:
             print(f"Error loading CSV: {e}")
-            return None
+            return pd.DataFrame()
 
-# Get the current system time rounded to the nearest 30 minute interval.
     def get_system_time(self):
-        current_time = datetime.now()
-        # hardcoded the date to 2025, 3, 11
-        hardcoded_time = datetime(2025, 3, 11, current_time.hour, current_time.minute, current_time.second)
-        return current_time.replace(minute=(hardcoded_time.minute // 30) * 30, second=0, microsecond=0)
+        now = datetime.now()
+        return now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0)
 
-# Check the df for the current 30 minute interval and update the state.
-    def update_state(self):
-        if self.data is None:
-            print("No data available for current time.")
-            return
+    def detect_vehicle(self):
+        if self.data.empty:
+            print("IRSensor: No CSV data loaded or file is empty.")
+            return False
 
-        current_time = self.get_system_time()
-        cuurent_ir_val = self.data[self.data['timestamp'] == current_time]
+        current_slot = self.get_system_time()
+        row = self.data[self.data['timestamp'] == current_slot]
 
-        if not cuurent_ir_val.empty:
-            ir_value = cuurent_ir_val['ir_value'].values[0]
-            vehicle_present = ir_value >= 0.7
-            print(f"[{current_time}] IR Value: {ir_value}, Vehicle Present: {vehicle_present}")
-            if vehicle_present != self.vehicle_present:
-                self.vehicle_present = vehicle_present
-                self.controller.handle_sensor_state_change(vehicle_present)  # Trigger the controller action
-        else:
-            print(f"[{current_time}] No ir sensor data found for this time slot.")
+        if row.empty:
+            print(f"IRSensor: No IR data for time slot: {current_slot}")
+            return False
 
-# Continuously check sensor data at 30 minute intervals in a separate thread, to not block main thread
-    def start_monitoring(self):
-        print("Starting IR Sensor monitoring...")
-        while not self.stop_event.is_set():
-            self.update_state()
-            self.stop_event.wait(20)  # Sleep for 30 minutes, changed to 20 sec for test purposes 
-
-# Start monitoring in a new thread
-    def run_in_thread(self):
-        self.thread = threading.Thread(target=self.start_monitoring, daemon=True)
-        self.thread.start()
-
-# Stop the monitoring thread 
-    def stop_monitoring(self):
-        self.stop_event.set()
-        self.thread.join()
+        ir_value = row.iloc[0]['ir_value']
+        vehicle_present = ir_value >= 0.7
+        print(f"IRSensor: [{current_slot}] IR Value={ir_value}, Vehicle Present={vehicle_present}")
+        return vehicle_present

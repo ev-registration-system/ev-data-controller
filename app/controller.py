@@ -1,65 +1,98 @@
+import math
 import time
 import threading
 from app.mqtt_handler import MQTTHandler
 from app.ir_sensor import IRSensor
 from app.charger import Charger
-from config import Config
-
 class Controller:
-    # This controller needs states:
-    # 1. No Vehicle
-    # 2. Vehicle Not Checked In
-    # 3. Vehicle Checked In
-    # 4. Illegal Vehicle
-
     STATE_NO_VEHICLE = 1
     STATE_VEHICLE_NOT_CHECKED_IN = 2
     STATE_VEHICLE_CHECKED_IN = 3
     STATE_ILLEGAL_VEHICLE = 4
 
-    def __init__(self, mqtt_topic_prefix):
+    def __init__(self):
         self.state = self.STATE_NO_VEHICLE
+        self.lock = threading.Lock()
+        self.session_start_time = None
         self.ir_sensor = IRSensor()
         self.charger = Charger()
         self.mqtt_handler = MQTTHandler()
-        self.mqtt_topic_prefix = mqtt_topic_prefix
         self.mqtt_handler.mqtt_client.on_message = self.on_controller_message
-        self.mqtt_handler.mqtt_client.connect(Config.MQTT_BROKER_URL, Config.MQTT_BROKER_PORT, 60)
-        self.mqtt_handler.mqtt_client.subscribe(f"{mqtt_topic_prefix}/#")
-        self.mqtt_handler.mqtt_client.loop_start()
+
+        while not self.mqtt_handler.is_connected:
+            time.sleep(1)
 
         self.sensor_thread = threading.Thread(target=self.monitor_sensor, daemon=True)
         self.sensor_thread.start()
 
     def on_controller_message(self, client, userdata, message):
-        payload = message.payload.decode("utf-8")
-        print(f"Received MQTT message on topic {message.topic}: {payload}")
+        with self.lock:
+            payload = message.payload.decode("utf-8")
+            print(f"Received MQTT message on topic {message.topic}: {payload}")
 
-        if message.topic.endswith("/checkin"):
-            self.state = self.STATE_VEHICLE_CHECKED_IN
-            self.charger.turn_on()
-            print("Vehicle checked in. Charger enabled.")
-        elif message.topic.endswith("/illegalvehicle"):
-            self.state = self.STATE_ILLEGAL_VEHICLE
-            print("Illegal vehicle detected.")
-        else:
-            print("Unrecognized topic")
+            if message.topic.endswith("/check-in"):
+                self.handle_check_in()
+            elif message.topic.endswith("/checkout"):
+                self.handle_check_out()
+            elif message.topic.endswith("/illegal"):
+                self.state = self.STATE_ILLEGAL_VEHICLE
+                print("Illegal vehicle detected.")
+            else:
+                print("Unrecognized topic")
 
     def monitor_sensor(self):
-        """
-        Monitors the IR sensor and manages state transitions based on vehicle detection.
-        Runs continuously in a separate thread.
-        """
         while True:
             vehicle_present = self.ir_sensor.detect_vehicle()
-            if vehicle_present and self.state == self.STATE_NO_VEHICLE:
-                self.state = self.STATE_VEHICLE_NOT_CHECKED_IN
-                print("Vehicle arrived. Notifying main application...")
-                self.mqtt_handler.notify_topic(f"{self.mqtt_topic_prefix}/vehicle_arrival", "Vehicle arrived")
+            with self.lock:
+                if vehicle_present and self.state == self.STATE_NO_VEHICLE:
+                    print("Vehicle arrived. Notifying main application...")
+                    self.state = self.STATE_VEHICLE_NOT_CHECKED_IN
+                    self.mqtt_handler.notify_topic("/evantage/system/arrive", "{\"message\": \"Vehicle arrived\"}")
+                elif not vehicle_present and self.state != self.STATE_NO_VEHICLE:
+                    print("Vehicle departed. Resetting state and disabling charger.")
+                    self.state = self.STATE_NO_VEHICLE
+                    self.charger.turn_off()
+            time.sleep(60)
 
-            elif not vehicle_present and self.state != self.STATE_NO_VEHICLE:
-                print("Vehicle departed. Resetting state and disabling charger if needed.")
-                self.state = self.STATE_NO_VEHICLE
-                self.charger.turn_off()
+    def handle_check_in(self):
+        self.state = self.STATE_VEHICLE_CHECKED_IN
+        self.session_start_time = time.time()
+        self.charger.turn_on()
+        print("Vehicle checked in. Charger enabled.")
 
-            time.sleep(2)
+    def handle_check_out(self):
+        if self.state == self.STATE_VEHICLE_CHECKED_IN:
+            self.send_session_summary()
+        else:
+            print("Checkout called but vehicle wasn't in checked-in state.")
+
+        self.reset_session()
+
+    def send_session_summary(self):
+        end_time = time.time()
+        if self.session_start_time is None:
+            print("No session start time recorded. Cannot send summary.")
+            return
+
+        duration_hours = (end_time - self.session_start_time) / 3600.0
+        hours_charged = math.ceil(duration_hours)
+
+        summary_data = {
+            "start_time": self.session_start_time,
+            "end_time": end_time,
+            "hours_charged": hours_charged,
+            "session_energy": self.charger.session_energy
+        }
+
+        summary_json = str(summary_data).replace("'", '"')
+        print(f"Sending session summary: {summary_json}")
+
+        self.mqtt_handler.notify_topic(
+            "/evantage/system/summary",
+            summary_json
+        )
+
+    def reset_session(self):
+        self.charger.turn_off()
+        self.session_start_time = None
+        self.charger.session_energy = 0.0
