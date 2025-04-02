@@ -5,7 +5,7 @@ class IRSensor:
     def __init__(self, csv_file='app/ir_sensor_data.csv'):
         self.csv_file = csv_file
         self.data = self.load_csv_data()
-
+        
     def load_csv_data(self):
         try:
             df = pd.read_csv(self.csv_file)
@@ -39,6 +39,6 @@ class IRSensor:
             return False
 
         ir_value = row.iloc[0]['ir_value']
-        vehicle_present = ir_value >= 0.7
+        vehicle_present = ir_value >= 0.6
         print(f"IRSensor: [{current_slot}] IR Value={ir_value}, Vehicle Present={vehicle_present}")
         return vehicle_present

@@ -14,8 +14,9 @@ class Controller:
         self.state = self.STATE_NO_VEHICLE
         self.lock = threading.Lock()
         self.session_start_time = None
+        self.not_checked_in_start = None
         self.ir_sensor = IRSensor()
-        self.charger = Charger()
+        self.charger = Charger(1)
         self.mqtt_handler = MQTTHandler()
         self.mqtt_handler.mqtt_client.on_message = self.on_controller_message
 
@@ -47,11 +48,27 @@ class Controller:
                 if vehicle_present and self.state == self.STATE_NO_VEHICLE:
                     print("Vehicle arrived. Notifying main application...")
                     self.state = self.STATE_VEHICLE_NOT_CHECKED_IN
-                    self.mqtt_handler.notify_topic("/evantage/system/arrive", "{\"message\": \"Vehicle arrived\"}")
+                    self.not_checked_in_start = time.time()
+                    self.mqtt_handler.notify_topic(
+                        "/evantage/system/arrive",
+                        "{\"message\": \"Vehicle arrived\"}"
+                    )
                 elif not vehicle_present and self.state != self.STATE_NO_VEHICLE:
                     print("Vehicle departed. Resetting state and disabling charger.")
                     self.state = self.STATE_NO_VEHICLE
+                    self.not_checked_in_start = None
                     self.charger.turn_off()
+
+                if self.state == self.STATE_VEHICLE_NOT_CHECKED_IN and self.not_checked_in_start:
+                    elapsed = time.time() - self.not_checked_in_start
+                    if elapsed >= 600:
+                        print("Vehicle stayed in NOT_CHECKED_IN for 10+ minutes. Marking as illegal.")
+                        self.state = self.STATE_ILLEGAL_VEHICLE
+                        self.mqtt_handler.notify_topic(
+                            "/evantage/system/illegal",
+                            "{\"message\": \"Illegal vehicle detected\", \"chargerId\": " + str(self.charger.id) + "}"
+                        )
+                        self.not_checked_in_start = None
             time.sleep(60)
 
     def handle_check_in(self):
@@ -78,6 +95,7 @@ class Controller:
         hours_charged = math.ceil(duration_hours)
 
         summary_data = {
+            "charger_id": self.charger.id,
             "start_time": self.session_start_time,
             "end_time": end_time,
             "hours_charged": hours_charged,

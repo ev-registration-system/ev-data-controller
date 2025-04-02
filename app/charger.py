@@ -2,10 +2,10 @@ import threading
 import time
 
 class Charger:
-    def __init__(self):
+    def __init__(self, id):
+        self.id = id
         self.state = 'off'
         self.session_energy = 0.0
-
         self.stop_event = threading.Event()
         self.thread = None
 
