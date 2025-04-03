@@ -1,3 +1,4 @@
+from datetime import datetime
 import math
 import time
 import threading
@@ -96,8 +97,8 @@ class Controller:
 
         summary_data = {
             "charger_id": self.charger.id,
-            "start_time": self.session_start_time,
-            "end_time": end_time,
+            "start_time": datetime.fromtimestamp(self.session_start_time).isoformat(),
+            "end_time": datetime.fromtimestamp(end_time).isoformat(),
             "hours_charged": hours_charged,
             "session_energy": self.charger.session_energy
         }
